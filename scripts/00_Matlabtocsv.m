@@ -12,12 +12,12 @@ writetable(d_g2,"/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/SubjbyLowerTri.rep
 
 %% behavior vars%%%
 
-abcd_discovery = load('MainTable_g1.mat');
+abcd_discovery = load('/Volumes/Zeus/Finn/ABCD/abcd_cca/cca/MainTable_g1.mat');
 %%%everything but nested matrices
 keepidx=setdiff(1:width(abcd_discovery.MainTable_g1),[ 2 8]);
 writetable(abcd_discovery.MainTable_g1(:,keepidx), '/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/behaviordata.disc.csv');
 
-abcd_replication = load('MainTable_g2.mat');
+abcd_replication = load('/Volumes/Zeus/Finn/ABCD/abcd_cca/cca/MainTable_g2.mat');
 keepidx=setdiff(1:width(abcd_replication.MainTable_g2),[ 2 8]);
 writetable(abcd_replication.MainTable_g2(:,keepidx), '/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/behaviordata.rep.csv');
 
