@@ -94,16 +94,19 @@ print(p)
 featselectednames<-NA
 if (unifeatselect){
    featselectednames<-svr.unifeatselect(train,y,nfeatures=nfeatures,featselectcores=tunecores)
+    tunedata<-train[,c(y,featselectednames)]
 }
 PCAreturn<-NA
 if (PCA){
    PCAreturn<-svr.pca.featreduction(train,y,propvarretain=propvarretain,scale=FALSE,center=TRUE)
+   tunedata<-cbind(PCAreturn[[1]],data.frame(y=train[,y]))
+   names(tunedata)[names(tunedata)=="y"]<-y
 }
 
 bestparams<-NA
 if (tune){
 	tc<-tune.control(sampling="cross",cross=tunefolds)
-	tunedsvm<-e1071::tune(svm,as.formula(paste0(y,"~.")),kernel="linear",data=t,ranges=list(epsilon=seq(.1,1,.2),cost=c(.01,.1,1,10,100)),tunecontrol=tc)
+	tunedsvm<-e1071::tune(svm,as.formula(paste0(y,"~.")),kernel="linear",data=tunedata,ranges=list(epsilon=seq(.1,1,.2),cost=c(.01,.1,1,10,100)),tunecontrol=tc)
 	bestparams<-tunedsvm$best.parameters
 }
 
@@ -112,32 +115,59 @@ return(tunefeatselectoutlist)
 }
 
 ######SVR single model functions############
-svr.single <- function(foldname=NA,test,train,y,tune=T,tunefolds,tunecores,weights=T) {
+svr.single <- function(foldname=NA,test,train,y,tune=T,tunefolds,tunecores,unifeatselect,nfeatures,PCA,propvarretain,weights=T,featlist) {
 #foldname, string | number for naming output 
 #test, test df
 #train, train df
 #y, yvarname
-#tune, T/F to Tune via SVRtuning_kfold_parallel
-#tunefolds, N folds for tuning (tuning occurs on train only)
+#current version expects tuning/feature selection/PCA to be performed via svrtunefeatselectpca and passed via featlist (saves RAM usage)
+#params for feat tuning/feature selection/PCA for debugging only
 #weights, T/F to include SVR weights in output
 require(e1071)
 print(foldname)
- svmmodel<-svm(as.formula(paste0(y,"~.")),kernel="linear",data=train)
- if (tune){
-   bestparameters<-SVRtuning_kfold_parallel(tunedf=train,y=y,k=tunefolds,tunecores=tunecores)   
-   svmmodel<-svm(as.formula(paste0(y,"~.")),cost=bestparameters$c,epsilon=bestparameters$e,kernel="linear",data=train)
- }
-nw<-length(grep("vx",names(train)))
+if (unifeatselect){
+   featselectednames<-featlist$featselectednames
+   train<-train[,c(featselectednames,y)]
+}
+pcamodel<-NA
+if (PCA){
+   PCAreturn<-featlist$PCAreturn
+   train<-cbind(PCAreturn[[1]],data.frame(y=train[,y]))
+   names(train)[names(train)=="y"]<-y
+   pcamodel<-PCAreturn[[2]]
+} 
+
+if (tune){
+   print("using hyperparameters from tuning")
+   bestparameters<-featlist$bestparams
+   svmmodel<-svm(as.formula(paste0(y,"~.")),cost=bestparameters$cost,epsilon=bestparameters$epsilon,kernel="linear",data=train)
+}else{
+   print("using defaualt hyperparameters")
+   svmmodel<-svm(as.formula(paste0(y,"~.")),kernel="linear",data=train)
+} 
+
+
+nw<-length(which(names(train)!=y))
 w <-rep(NA,nw)
 if (weights){
-w <- t(svmmodel$coefs) %*%svmmodel$SV 
+w <- t(svmmodel$coefs) %*% svmmodel$SV 
 }
- 
- ####save model performance
- pred_train        <-predict(svmmodel,train)
- pred_test         <-predict(svmmodel,test)
+svmweightsPCAbyedge<-NA
+if (PCA){
+ncomponents<-length(PCAreturn[[1]])
+svmweightsPCAbyedge<-w  %*% t(PCAreturn[[2]]$rotation[,1:ncomponents])
+}
 
- ######save model params
+ ####save model performance
+ pred_train<-predict(svmmodel,train)
+
+if (PCA) { 
+validationset<-predict(outlist[[p]]$pcamodel,test)
+}else{
+validationset<-test
+} 
+pred_test<-predict(svmmodel,validationset)
+######save model params
  
 cvout<-as.data.frame(cbind(
    foldname     = foldname,
@@ -149,11 +179,12 @@ cvout<-as.data.frame(cbind(
    cost   =svmmodel$cost,
    gamma  =svmmodel$gamma
  ))
-savelist<-list(cvout,w)
+savelist<-list(cvout=cvout,svmweights=w,featselectednames=featselectednames,svmweightsPCAbyedge)
 return(savelist)
 }
 
 svr.trainonly <- function(foldname=NA,train,y,tune=F,tunefolds,tunecores,unifeatselect,nfeatures,PCA,propvarretain,weights=T,featlist) {
+###modified train only version for ABCD 
 #foldname, string | number for naming output
 #test, test df
 #train, train df
@@ -327,7 +358,7 @@ SVR_validationcommonleftout<-function(traindf,testdf,y,xcols,verb=FALSE,tune=FAL
     
    gc()
   
-   chunkpull<-pulls[,pullchunkstart:pullchunkend]
+   chunkpull<-as.matrix(pulls[,pullchunkstart:pullchunkend])
  
 
 	print("feature selection/model tuning")
@@ -369,30 +400,31 @@ SVR_validationcommonleftout<-function(traindf,testdf,y,xcols,verb=FALSE,tune=FAL
    row.names(svmweightsmat)<-row.names(outlist[[1]]$pcamodel$rotation)
    }
     
-   chunklist<-list(chunk=currentchunk,itersamplesize=itersamplesize,y=y,unifeatselect=unifeatselect,PCA=PCA,testpreds=testpredlistmat,testyvals=jddatatest[,y],svmweights=svmweightsmat,svmlabelsmat=svmlabelsmat)
+   chunklist<-list(chunk=currentchunk,itersamplesize=itersamplesize,y=y,tune=tune,unifeatselect=unifeatselect,PCA=PCA,testpreds=testpredlistmat,testyvals=jddatatest[,y],svmweights=svmweightsmat,svmlabelsmat=svmlabelsmat)
    chunksavenamefile<- paste0(sprintf(chunksavename,itersamplesize,currentchunk),".rdata")
    if (!file.exists(chunksavenamefile)){save(chunklist,file=chunksavenamefile)}
    rm(list=c("outlist","testpredlist","featureselectlist"))
    gc()
 })
-   chunkglobnames<-sprintf(gsub("chunk%i","chunk%s",chunksavename),itersamplesize,"*")
-   chunkglobfiles<-Sys.glob(chunkglobnames)
-   chunkslists<-lapply(1:length(chunkglobfiles),function(cgi){
-   print(cgi)
-   load(chunkglobfiles[[cgi]])
-   chunk<-chunklist
-   return(chunk)})
-   
-   allpreds<-do.call(cbind,lapply(1:length(chunkslists),function(cgi){testpreds<-chunkslists[[cgi]]$testpreds}))
-   allweights<--do.call(cbind,lapply(1:length(chunkslists),function(cgi){svmweights<-chunkslists[[cgi]]$svmweights}))
 
-   if (unifeatselect) {
-   allchunkreturn<-list(itersamplesize=itersamplesize,y=y,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,testpreds=allpreds,svmweightlabels=svmlabelsmat,svmweights=allweights,testyvals=jddatatest[,y])
-   } else if (PCA) {
-      allchunkreturn<-list(itersamplesize=itersamplesize,y=y,unifeatselect=unifeatselect,PCA=PCA,propvarretation=propvarretation,testpreds=allpreds,svmweights=allweights,testyvals=jddatatest[,y])
-   }
-   return(chunkslists)
-
+#   chunkglobnames<-sprintf(gsub("chunk%i","chunk%s",chunksavename),itersamplesize,"*")
+#   chunkglobfiles<-Sys.glob(chunkglobnames)
+#   chunkslists<-lapply(1:length(chunkglobfiles),function(cgi){
+#   print(cgi)
+#   load(chunkglobfiles[[cgi]])
+#   chunk<-chunklist
+#   return(chunk)})
+#   
+#   allpreds<-do.call(cbind,lapply(1:length(chunkslists),function(cgi){testpreds<-chunkslists[[cgi]]$testpreds}))
+#   allweights<--do.call(cbind,lapply(1:length(chunkslists),function(cgi){svmweights<-chunkslists[[cgi]]$svmweights}))
+#
+#   if (unifeatselect) {
+#   allchunkreturn<-list(itersamplesize=itersamplesize,y=y,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,testpreds=allpreds,svmweightlabels=svmlabelsmat,svmweights=allweights,testyvals=jddatatest[,y])
+#   } else if (PCA) {
+#      allchunkreturn<-list(itersamplesize=itersamplesize,y=y,tune=tune,unifeatselect=unifeatselect,PCA=PCA,propvarretation=propvarretation,testpreds=allpreds,svmweights=allweights,testyvals=jddatatest[,y])
+#   }
+#   return(chunkslists)
+#
           
 }
 
@@ -464,24 +496,23 @@ param<-propvarretain
 }else if(unifeatselect){
 type<-"unifeatselect"
 param<-nfeatures
-}  
-basesavename<-paste(savedir,paste(paste(paste(type,param,sep="."),y,sep="."),"n%i",sep="."),sep="/")
-chunksavename<-paste(savedir,paste(paste(paste(type,param,sep="."),y,sep="."),"n%i.chunk%i",sep="."),sep="/")
-if (system('hostname',intern=T)=='wallace'){samplesizes<-rev(samplesizes)}
+} 
 
+tunename<-"NOTUNE"
+if (tune){
+tunename<-"TUNE"
+}
+
+basesavename<-paste(savedir,paste(paste(paste(type,param,tunename,sep="."),y,sep="."),"n%i",sep="."),sep="/")
+chunksavename<-paste(savedir,paste(paste(paste(type,param,tunename,sep="."),y,sep="."),"n%i.chunk%i",sep="."),sep="/")
+#if (system('hostname',intern=T)=='wallace'){samplesizes<-rev(samplesizes)}
 
 for (ss in samplesizes){
-savename<-paste0(sprintf(basesavename,ss),".rdata")
-if (!file.exists(savename)){
+#savename<-paste0(sprintf(basesavename,ss),".rdata")
+#if (!file.exists(savename)){
 svrvalidationatss<-SVR_validationcommonleftout(traindf=traindf,testdf=testdf,y=y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=weights,itersamplesize=ss,niter=niter,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,chunksavename=chunksavename,savechunksize=savechunksize,validationcores=validationcores)
    }
-
-if (!file.exists(savename)){
-save(svrvalidationatss,file=savename)
- }
+#if (!file.exists(savename)){
+#save(svrvalidationatss,file=savename)
+#}
 }
-}
-
-   
-
-
