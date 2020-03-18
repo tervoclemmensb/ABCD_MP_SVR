@@ -84,8 +84,9 @@ trainforpca <- scale(trainforpca)
 pcaout<-prcompfast(trainforpca,retx=TRUE,center=center,scale.=scale)
 prcomp.varex <-  pcaout$sdev^2/sum(pcaout$sdev^2)
 prcomp.cumsum <-  cumsum(prcomp.varex)
-if (propvarretain==1){compiatthreshold=ncol(pcaout$x)}
-else if (propvarretain!=1){compiatthreshold <- which.min(prcomp.cumsum <= propvarretain)}
+if (propvarretain==1){compiatthreshold<-ncol(pcaout$x)}
+if (propvarretain<1){compiatthreshold <- which.min(prcomp.cumsum <= propvarretain)}
+if (propvarretain>1){compiatthreshold<-propvarretain}
 pcascoresreturn<-data.frame(pcaout$x[,1:compiatthreshold])
 pcaoutlist<-list(pcascoresreturn,pcaout)
 return(pcaoutlist)
@@ -94,6 +95,7 @@ return(pcaoutlist)
 svrtunefeatselectpca<-function(p=NA,train,y,unifeatselect,nfeatures,PCA,propvarretain,tune,tunefolds){
 print(p)
 featselectednames<-NA
+tunedata<-train
 if (unifeatselect){
    featselectednames<-svr.unifeatselect(train,y,nfeatures=nfeatures,featselectcores=tunecores)
     tunedata<-train[,c(y,featselectednames)]
@@ -127,6 +129,7 @@ svr.single <- function(foldname=NA,test,train,y,tune=T,tunefolds,tunecores,unife
 #weights, T/F to include SVR weights in output
 require(e1071)
 print(foldname)
+featselectednames<-NA
 if (unifeatselect){
    featselectednames<-featlist$featselectednames
    train<-train[,c(featselectednames,y)]
@@ -148,7 +151,6 @@ if (tune){
    svmmodel<-svm(as.formula(paste0(y,"~.")),kernel="linear",data=train)
 } 
 
-
 nw<-length(which(names(train)!=y))
 w <-rep(NA,nw)
 if (weights){
@@ -164,7 +166,7 @@ svmweightsPCAbyedge<-w  %*% t(PCAreturn[[2]]$rotation[,1:ncomponents])
  pred_train<-predict(svmmodel,train)
 
 if (PCA) { 
-validationset<-predict(outlist[[p]]$pcamodel,test)
+validationset<-predict(pcamodel,test)
 }else{
 validationset<-test
 } 
@@ -181,7 +183,7 @@ cvout<-as.data.frame(cbind(
    cost   =svmmodel$cost,
    gamma  =svmmodel$gamma
  ))
-savelist<-list(cvout=cvout,svmweights=w,featselectednames=featselectednames,svmweightsPCAbyedge)
+savelist<-list(cvout=cvout,svmweights=w,featselectednames=featselectednames,svmweightsPCAbyedge=svmweightsPCAbyedge)
 return(savelist)
 }
 
@@ -241,7 +243,7 @@ return(savelist)
 
 ####svr validation functions#####
 
-SVR_crossvalidation<-function(foldvar,df,y,xcols,verb=FALSE,tune=TRUE,tunefolds,permute=FALSE,yperm=NULL,outerfoldcores,tunecores,weights=FALSE){  
+SVR_crossvalidation<-function(foldvar,df,y,xcols,verb=FALSE,tune=TRUE,tunefolds,permute=FALSE,yperm=NULL,outerfoldcores,tunecores,weights=TRUE,unifeatselect,nfeatures,PCA,propvarretain){  
    df<-df[!(is.na(df[,y])),]
    ytrain<-y
    if (permute){
@@ -265,11 +267,17 @@ SVR_crossvalidation<-function(foldvar,df,y,xcols,verb=FALSE,tune=TRUE,tunefolds,
    print(tunefolds)
    print("tuning folds")
    }
-   #######leave one out loop##############
-   outlist <- mclapply(unique(folds),mc.cores=outerfoldcores, function(lo){ 
-                          svr.single(foldname=unique(df[df[,foldvar]==lo,foldvar]),test=jddatatest[folds==lo,],train=jddatatrain[folds!=lo,],y=ytrain,tune=tune,tunefolds=tunefolds,tunecores=tunecores,weights=weights)})  
 
-   #####will help embedded list###
+   ###featselect and tuning###
+   featureselectlist<-mclapply(unique(folds),mc.cores=tunecores,function(f){
+   svrtunefeatselectpca(p=f,train=jddatatrain[folds!=f,],y=ytrain,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,tune=tune,tunefolds=tunefolds)})
+
+
+   #######leave one out loop##############
+   outlist <- mclapply(unique(folds),mc.cores=outerfoldcores, function(f){ 
+                           svr.single(foldname=f,test=jddatatest[folds==f,],train=jddatatrain[folds!=f,],y=ytrain,tune=tune,tunefolds=tunefolds,tunecores=tunecores,weights=weights,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,featlist=featureselectlist[[which(sapply(featureselectlist, `[[`, "p")==f)]])})  
+
+   #####embedded list###
    modelfitouts<-lapply(outlist,"[[",1) 
    
    # list apparently needs a name
@@ -281,8 +289,11 @@ SVR_crossvalidation<-function(foldvar,df,y,xcols,verb=FALSE,tune=TRUE,tunefolds,
    names(weightouts)<-names(modelfitouts)
    weightoutdf<- lapply(weightouts,function(x) { as.data.frame(x) } ) %>% bind_rows
 
+   featselectednames<-lapply(outlist,"[[",3)
+   svmweightsPCAbyedge<-lapply(outlist,"[[",4)
 
-   outlist<-list(modeloutdf=modeloutdf,weightoutdf=weightoutdf)
+   outlist<-list(modeloutdf=modeloutdf,weightoutdf=weightoutdf,featselectednames=featselectednames,svmweightsPCAbyedge=svmweightsPCAbyedge)
+   
    return(outlist)
 }
 
@@ -427,25 +438,49 @@ SVR_validationcommonleftout<-function(traindf,testdf,y,xcols,verb=FALSE,tune=FAL
 
 #######################################svm wrappers#############
 
-svm_wrapper<-function(foldvar,df,ys,xcols,tune,tunefolds,outerfoldcores,tunecores,weights=TRUE,foldsummary=TRUE){
+svm_wrapper<-function(foldvar,df,ys,xcols,tune,tunefolds,outerfoldcores,tunecores,weights=TRUE,unifeatselect,nfeatures,PCA,propvarretain,foldsummary=TRUE){
 wrapperout<-NULL
+weightsoutmean<-NULL
 weightsout<-NULL
-
+featselectednamesout<-NULL
 for (cur_y in ys){
 print(cur_y)
 
-loocxlist <- SVR_crossvalidation(foldvar=foldvar,df,cur_y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=TRUE)
+loocxlist <- SVR_crossvalidation(foldvar=foldvar,df,cur_y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=TRUE,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,permute=permute)
 loocxdf<-loocxlist[["modeloutdf"]]
+
 loocxdf$y<-cur_y
+loocxdf[,c("testyval","cvpred")]<-lapply(loocxdf[,c("testyval","cvpred")],function(x){as.numeric(x)})
 loocxdf$error<-loocxdf$testyval-loocxdf$cvpred
 wrapperout<-rbind(wrapperout,loocxdf)
 
 svmweights<-loocxlist[["weightoutdf"]]
+svmweights$y<-cur_y
+if (unifeatselect){
+featselectednames<-data.frame(do.call(rbind,loocxlist[["featselectednames"]]))
+featselectednames$y<-cur_y
+svmweights_m<-NA
+featselectednamesout<-rbind(featselectednamesout,featselectednames)
+weightsout<-rlist::list.append(weightsout,list(svmweights))
+names(weightsout)[which(ys==cur_y)]<-cur_y
+}else{
+
 svmweights_m<-as.data.frame(t(sapply(svmweights,mean, na.rm = T)))
-svmweights_m$y<-cur_y
-weightsout<-rbind(weightsout,svmweights_m)
+
+if (PCA){
+svmweights<-loocxlist[["svmweightsPCAbyedge"]]
+svmweights<-data.frame(do.call(rbind,svmweights))
+svmweights_m<-as.data.frame(t(sapply(svmweights,mean, na.rm = T)))
 }
-wrapperreturn<-list(wrapperout=wrapperout,weightsout=weightsout)
+svmweights_m$y<-cur_y
+svmweights$y<-cur_y
+
+weightsoutmean<-rbind(weightsoutmean,svmweights_m)
+weightsout<-rbind(weightsout,svmweights)
+}
+}
+
+wrapperreturn<-list(wrapperout=wrapperout,weightsout=weightsout,weightmean=weightsoutmean,featselectednames=featselectednamesout)
 return(wrapperreturn)
 }
 

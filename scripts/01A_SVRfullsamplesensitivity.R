@@ -25,8 +25,8 @@ savedir<-"/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/svrbysamplesize/fulltrain
 if (!dir.exists(savedir)){dir.create(savedir)}
 
 ######PCA feat select##############################################
-propvarretain<-c(.5,1)
-tunelist<-c(FALSE)
+propvarretain<-c(.5,1,25)
+tunelist<-c(TRUE,FALSE)
 ylist<-c("pea_wiscv_tss","cbcl_scr_syn_totprob_r_log","cbcl_scr_syn_external_r_log","cbcl_scr_syn_internal_r_log",
          "FD","nihtbx_totalcomp_uncorrected","nihtbx_fluidcomp_uncorrected","nihtbx_cryst_uncorrected")
 allparams<-expand.grid(propvarretain=propvarretain,tune=tunelist,y=ylist)
@@ -37,7 +37,7 @@ mclapply(1:nrow(allparams),mc.cores=3,function(pi){
    if (allparams$tune[pi]){
    tunename<-"TUNE"
    }
-   outname<-paste0(paste(savedir,paste("PCA",allparams$propvarretain[pi],tunename,allparams$y[pi],"Sensitivityjob","n1957.chunk1",sep="."),sep="/"),".rdata")
+   outname<-paste0(paste(savedir,paste("PCA",allparams$propvarretain[pi],tunename,"Sensitivityjob",allparams$y[pi],"n1957.chunk1",sep="."),sep="/"),".rdata")
    print(outname)
    if (!file.exists(outname)){
    svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=FALSE,nfeatures=0,PCA=TRUE,propvarretain=allparams$propvarretain[pi],savedir=savedir,savechunksize=nrow(traindf),validationcores=1,jobname="Sensitivityjob")
@@ -45,15 +45,9 @@ mclapply(1:nrow(allparams),mc.cores=3,function(pi){
    
 })
 
-
-
-
-
-
 #######univariate feat select#######################################
-
 nfeaturelist<-c(1000,10000,15000,5000)
-tunelist<-c(FALSE)
+tunelist<-c(TRUE,FALSE)
 ylist<-c("pea_wiscv_tss","cbcl_scr_syn_totprob_r_log","cbcl_scr_syn_external_r_log","cbcl_scr_syn_internal_r_log",
          "FD","nihtbx_totalcomp_uncorrected","nihtbx_fluidcomp_uncorrected","nihtbx_cryst_uncorrected")
 
@@ -66,10 +60,10 @@ mclapply(1:nrow(allparams),mc.cores=3,function(pi){
    if (allparams$tune[pi]){
    tunename<-"TUNE"
    }
-   outname<-paste0(paste(savedir,paste("unifeatselect",allparams$nfeatures[pi],tunename,allparams$y[pi],"n1730.chunk1",sep="."),sep="/"),".rdata")
+ outname<-paste0(paste(savedir,paste("unifeatselect",allparams$propvarretain[pi],tunename,"Sensitivityjob",allparams$y[pi],"n1957.chunk1",sep="."),sep="/"),".rdata") 
    print(outname)
    if (!file.exists(outname)){
-   svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=TRUE,nfeatures=allparams$nfeatures[pi],PCA=FALSE,propvarretain=.5,savedir=savedir,savechunksize=nrow(traindf),validationcores=1)
+   svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=TRUE,nfeatures=allparams$nfeatures[pi],PCA=FALSE,propvarretain=.5,savedir=savedir,savechunksize=nrow(traindf),validationcores=1,jobname="Sensitivityjob")
    }else{print("file exists skipping")}
    
 })
