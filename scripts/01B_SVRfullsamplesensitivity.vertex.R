@@ -2,33 +2,36 @@
 #
 ##load data##########################
 
-load("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/traindatadf.Rdata")
+load("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/traindatadf.vertex.Rdata")
 load("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/trainyswithresidandscaledys.Rdata")
-load("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/testdatadf.Rdata")
+load("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/testdatadf.vertex.Rdata")
 load("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/testyswithresidandscaledys.Rdata")
+
+source("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/scripts/0x_svrfuncs.R")
+
+traindf<-traindfvertex
+testdf<-testdfvertex
 
 traindf<-merge(traindf,trainysresidandscaledys,by="Subject")
 testdf<-merge(testdf,testysresidandscaledys,by="Subject")
 
-source("/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/scripts/0x_svrfuncs.R")
-xcols<-grep("edge",names(traindf),value=TRUE)
+xcols<-grep("Vertex",names(traindf),value=TRUE)
 
-traindf<-traindf[,!grepl("Vertex",names(traindf))]
 traindf$abcd_cbcls01_cbcl_scr_syn_totprob_r_log<-log(1+traindf$abcd_cbcls01_cbcl_scr_syn_totprob_r)
 traindf$abcd_cbcls01_cbcl_scr_syn_internal_r_log<-log(1+traindf$abcd_cbcls01_cbcl_scr_syn_internal_r)
 traindf$abcd_cbcls01_cbcl_scr_syn_external_r_log<-log(1+traindf$abcd_cbcls01_cbcl_scr_syn_external_r)
 traindf$age<-traindf$abcd_pgbi01_interview_age
 
-testdf<-testdf[,!grepl("Vertex",names(testdf))]
 testdf$abcd_cbcls01_cbcl_scr_syn_totprob_r_log<-log(1+testdf$abcd_cbcls01_cbcl_scr_syn_totprob_r)
 testdf$abcd_cbcls01_cbcl_scr_syn_internal_r_log<-log(1+testdf$abcd_cbcls01_cbcl_scr_syn_internal_r)
 testdf$abcd_cbcls01_cbcl_scr_syn_external_r_log<-log(1+testdf$abcd_cbcls01_cbcl_scr_syn_external_r)
 testdf$age<-testdf$abcd_pgbi01_interview_age
+####test run########
 
 traindf<-traindf[complete.cases(traindf[,xcols]),]
 testdf<-testdf[complete.cases(testdf[,xcols]),]
 
-savedir<-"/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/svrbysamplesize/fulltrainsensitivity_20200401/"
+savedir<-"/Volumes/Hera/Datasets/ABCD/ABCD_MP_SVR/data/svrbysamplesize/fulltrainsensitivity_vertex_20200401"
 
 if (!dir.exists(savedir)){dir.create(savedir)}
 
@@ -50,7 +53,7 @@ mclapply(1:nrow(allparams),mc.cores=8,function(pi){
    outname<-paste0(paste(savedir,paste("PCA",allparams$propvarretain[pi],tunename,"Sensitivityjob",allparams$y[pi],"n1957.chunk1",sep="."),sep="/"),".rdata")
    print(outname)
    if (!file.exists(outname)){
-   svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=FALSE,nfeatures=0,PCA=TRUE,propvarretain=allparams$propvarretain[pi],savedir=savedir,savechunksize=nrow(traindf),validationcores=1,jobname="Sensitivityjob",resample=FALSE)
+   svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=FALSE,nfeatures=0,PCA=TRUE,propvarretain=allparams$propvarretain[pi],savedir=savedir,savechunksize=nrow(traindf),validationcores=1,jobname="Sensitivityjob")
    }else{print("file exists skipping")}
    
 })
@@ -71,7 +74,7 @@ mclapply(1:nrow(allparams),mc.cores=8,function(pi){
  outname<-paste0(paste(savedir,paste("unifeatselect",allparams$propvarretain[pi],tunename,"Sensitivityjob",allparams$y[pi],"n1957.chunk1",sep="."),sep="/"),".rdata") 
    print(outname)
    if (!file.exists(outname)){
-   svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=TRUE,nfeatures=allparams$nfeatures[pi],PCA=FALSE,propvarretain=.5,savedir=savedir,savechunksize=nrow(traindf),validationcores=1,jobname="Sensitivityjob",resample=FALSE)
+   svm_samplesizewrapper(traindf=traindf,testdf=testdf,y=as.character(allparams$y[pi]),xcols=xcols,tune=allparams$tune[pi],tunefolds=2,outerfoldcores=1,tunecores=1,weights=TRUE,samplesizes=nrow(traindf),niter=1,unifeatselect=TRUE,nfeatures=allparams$nfeatures[pi],PCA=FALSE,propvarretain=.5,savedir=savedir,savechunksize=nrow(traindf),validationcores=1,jobname="Sensitivityjob")
    }else{print("file exists skipping")}
    
 })

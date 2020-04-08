@@ -63,7 +63,6 @@ return(bestparameters)
 }
 #########
 svr.unifeatselect<-function(train,y,nfeatures,featselectcores=1){
-print("in univariate feat select funct")
 featurecorrs<-lapply(names(train)[names(train)!=y],function(ename){
 var<-c(ename,cor(train[,ename],train[,y]))
 })
@@ -270,7 +269,8 @@ SVR_crossvalidation<-function(foldvar,df,y,xcols,verb=FALSE,tune=TRUE,tunefolds,
 
    ###featselect and tuning###
    featureselectlist<-mclapply(unique(folds),mc.cores=tunecores,function(f){
-   svrtunefeatselectpca(p=f,train=jddatatrain[folds!=f,],y=ytrain,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,tune=tune,tunefolds=tunefolds)})
+   print(f)   
+svrtunefeatselectpca(p=f,train=jddatatrain[folds!=f,],y=ytrain,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,tune=tune,tunefolds=tunefolds)})
 
 
    #######leave one out loop##############
@@ -297,7 +297,7 @@ SVR_crossvalidation<-function(foldvar,df,y,xcols,verb=FALSE,tune=TRUE,tunefolds,
    return(outlist)
 }
 
-SVR_validationcommonleftout<-function(traindf,testdf,y,xcols,verb=FALSE,tune=FALSE,tunefolds,permute=FALSE,yperm=NULL,outerfoldcores,tunecores,weights=FALSE,itersamplesize,niter=100,unifeatselect,nfeatures,PCA,propvarretain,chunksavename,savechunksize,validationcores){
+SVR_validationcommonleftout<-function(traindf,testdf,y,xcols,verb=FALSE,tune=FALSE,tunefolds,permute=FALSE,yperm=NULL,outerfoldcores,tunecores,weights=FALSE,itersamplesize,niter=100,unifeatselect,nfeatures,PCA,propvarretain,chunksavename,savechunksize,validationcores,resample=TRUE){
    
    traindf<-traindf[!(is.na(traindf[,y])),]
    testdf<-testdf[!(is.na(testdf[,y])),]
@@ -316,14 +316,21 @@ SVR_validationcommonleftout<-function(traindf,testdf,y,xcols,verb=FALSE,tune=FAL
    names(jddatatest)[names(jddatatest)==y]<-ytrain
 
    ###create pulls#####
-
+   
    pulls<-do.call(cbind,lapply(1:niter,function(x){sample(1:nrow(jddatatrain),itersamplesize,replace=TRUE)}))
    
+   if(resample==FALSE){
+   print("no resample")
+   pulls<-as.matrix(seq(1:nrow(jddatatrain)))
+   }
+
    nchunks<-ceiling(ncol(pulls)/savechunksize)
    if ((ncol(pulls)/savechunksize)!=round(ncol(pulls)/savechunksize)){
    print("warning! niter not divisible by chunk size")
    print("possible slowing of run time with extra chunk")
    }
+
+   print(resample)
  
    #####print run info#######
    print("###Run INFO######")
@@ -446,7 +453,7 @@ featselectednamesout<-NULL
 for (cur_y in ys){
 print(cur_y)
 
-loocxlist <- SVR_crossvalidation(foldvar=foldvar,df,cur_y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=TRUE,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,permute=permute)
+loocxlist <- SVR_crossvalidation(foldvar=foldvar,df,cur_y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=TRUE,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,permute=FALSE)
 loocxdf<-loocxlist[["modeloutdf"]]
 
 loocxdf$y<-cur_y
@@ -484,6 +491,13 @@ wrapperreturn<-list(wrapperout=wrapperout,weightsout=weightsout,weightmean=weigh
 return(wrapperreturn)
 }
 
+svr_wrapper_parse<-function(svm_warpper_object){
+cors<-svm_warpper_object$wrapperout %>% dplyr::group_by(y,foldname) %>% dplyr::summarise(cvcor=cor(cvpred,testyval),cvrsq=rsquared_function(testyval,error))
+print(cors)
+return(cors)
+}
+
+
 svm_wrapper_permute<-function(df,ys,xcols,tune,tunefolds,outerfoldcores,tunecores,nperms=1000,foldsummary=TRUE){
 permwrapperout<-NULL
 for (cur_y in ys){
@@ -520,7 +534,7 @@ return(permwrapperout)
 }
 
 ############svm sample size wrappers for MP#######################
-svm_samplesizewrapper<-function(traindf,testdf,y,xcols,tune=FALSE,tunefolds,outerfoldcores,tunecores,weights=TRUE,samplesizes,niter=100,niterweighted,unifeatselect,nfeatures=1000,PCA,propvarretain=.5,savedir,savechunksize,validationcores,jobname){
+svm_samplesizewrapper<-function(traindf,testdf,y,xcols,tune=FALSE,tunefolds,outerfoldcores,tunecores,weights=TRUE,samplesizes,niter=100,niterweighted,unifeatselect,nfeatures=1000,PCA,propvarretain=.5,savedir,savechunksize,validationcores,jobname,resample=TRUE){
 
 if (PCA){
 type<-"PCA"
@@ -543,7 +557,7 @@ print(chunksavename)
 for (ss in samplesizes){
 #savename<-paste0(sprintf(basesavename,ss),".rdata")
 #if (!file.exists(savename)){
-svrvalidationatss<-SVR_validationcommonleftout(traindf=traindf,testdf=testdf,y=y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=weights,itersamplesize=ss,niter=niter,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,chunksavename=chunksavename,savechunksize=savechunksize,validationcores=validationcores)
+svrvalidationatss<-SVR_validationcommonleftout(traindf=traindf,testdf=testdf,y=y,xcols,tune=tune,tunefolds=tunefolds,outerfoldcores=outerfoldcores,tunecores=tunecores,weights=weights,itersamplesize=ss,niter=niter,unifeatselect=unifeatselect,nfeatures=nfeatures,PCA=PCA,propvarretain=propvarretain,chunksavename=chunksavename,savechunksize=savechunksize,validationcores=validationcores,resample=resample)
    }
 #if (!file.exists(savename)){
 #save(svrvalidationatss,file=savename)
